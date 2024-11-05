@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 #include "hash.h"
 
@@ -34,9 +35,12 @@ void list_remove(struct list *elem)
 
 struct hash_table *hash_init(size_t size)
 {
-    struct hash_table *ret = malloc(sizeof(*ret));
+    struct hash_table *ret;
     size_t i;
 
+    assert(size);
+
+    ret = malloc(sizeof(*ret));
     if (!ret)
         return NULL;
 
@@ -54,7 +58,7 @@ void hash_free(struct hash_table *table)
     free(table);
 }
 
-uint64_t hash_bytes(void *key, size_t len)
+static uint64_t hash_bytes(void *key, size_t len)
 {
     static const uint64_t fnv_prime = 0x100000001b3;
     uint64_t hash = 0xcbf29ce484222325;
@@ -89,6 +93,12 @@ int hash_insert(struct hash_table *table, void *key, size_t key_len, void *value
     struct hash_entry *entry;
     size_t hash;
  
+    assert(table);
+    assert(key);
+    assert(key_len);
+    assert(value);
+    assert(value_len);
+
     if (hash_lookup(table, key, key_len))
         return HASH_ERR_KEY_EXISTS;
 
@@ -126,6 +136,12 @@ int hash_get(struct hash_table *table, void *key, size_t key_len, void *value, s
 {
     struct hash_entry *node;
 
+    assert(table);
+    assert(key);
+    assert(key_len);
+    assert(value);
+    assert(value_len);
+
     node = hash_lookup(table, key, key_len);
     
     if (!node)
@@ -141,6 +157,10 @@ int hash_get(struct hash_table *table, void *key, size_t key_len, void *value, s
 int hash_delete(struct hash_table *table, void *key, size_t key_len)
 {
     struct hash_entry *node;
+
+    assert(table);
+    assert(key);
+    assert(key_len);
 
     node = hash_lookup(table, key, key_len);
     
