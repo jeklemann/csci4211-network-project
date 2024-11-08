@@ -22,39 +22,34 @@ static void close_connection(struct connection *conn)
  * Returns 0 if memory fails to allocate. Otherwise, data is set to out. */
 static size_t split_string(char *str, char delim, size_t len, char ***out)
 {
-    char delim_str[2] = { delim, '\0' };
-    char *buf, *ptr, **ret;
     size_t i, num_tok = 0;
+    char *ptr, **ret;
 
-    buf = ptr = malloc((len + 1) * sizeof(*buf));
-    if (!buf)
-        return 0;
-
-    /* Null terminate tokens */
-    memcpy(buf, str, len);
-    buf[len] = '\0';
+    ptr = str;
     do
     {
         num_tok++;
-        strsep(&ptr, delim_str);
+        ptr = memchr(ptr, delim, len - (ptr - str));
     }
-    while (ptr);
+    while (ptr++); /* Advance the pointer 1 step past delim */
 
     /* Put the string after the pointers so it can be freed in one go */
-    ret = malloc(num_tok * sizeof(*ret) + (len + 1) * sizeof(*buf));
+    ret = malloc(num_tok * sizeof(*ret) + (len + 1) * sizeof(**ret));
     if (!ret)
-    {
-        free(buf);
         return 0;
-    }
-    memcpy(&ret[num_tok], buf, len + 1);
-    free(buf);
 
+    /* Copy string to after pointers and null terminate */
     ptr = (char *)&ret[num_tok];
+    memcpy(ptr, str, len);
+    ptr[len] = '\0';
+
+    /* Null terminate other tokens */
     for (i = 0; i < num_tok; i++)
     {
         ret[i] = ptr;
-        ptr += strlen(ptr) + 1;
+        ptr = strchr(ptr, delim);
+        if (ptr)
+            *ptr++ = '\0';
     }
 
     *out = ret;
