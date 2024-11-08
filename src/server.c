@@ -28,10 +28,19 @@ static size_t split_string(char *str, char delim, size_t len, char ***out)
     ptr = str;
     do
     {
+        while(*ptr == delim && len > ptr - str)
+            ptr++;
+
+        if (len <= ptr - str)
+            break;
+
         num_tok++;
         ptr = memchr(ptr, delim, len - (ptr - str));
     }
     while (ptr++); /* Advance the pointer 1 step past delim */
+
+    if (!num_tok)
+        return 0;
 
     /* Put the string after the pointers so it can be freed in one go */
     ret = malloc(num_tok * sizeof(*ret) + (len + 1) * sizeof(**ret));
@@ -46,6 +55,9 @@ static size_t split_string(char *str, char delim, size_t len, char ***out)
     /* Null terminate other tokens */
     for (i = 0; i < num_tok; i++)
     {
+        while(*ptr == delim)
+            ptr++;
+
         ret[i] = ptr;
         ptr = strchr(ptr, delim);
         if (ptr)
@@ -67,7 +79,10 @@ static void parse_command(char *cmd, size_t len)
 
     num_toks = split_string(cmd, ' ', len, &toks);
     if (!num_toks)
+    {
         fprintf(stderr, "Unable to parse command, dropping\n");
+        return;
+    }
 
     for (int i = 0; i < num_toks; i++)
         printf("Token: %s\n", toks[i]);
