@@ -66,7 +66,7 @@ static uint64_t hash_bytes(void *key, size_t len)
     size_t i;
 
     for (i = 0; i < len; i++)
-        hash = (hash * fnv_prime) ^ bytes[i];
+        hash = (hash ^ bytes[i]) * fnv_prime;
 
     return hash;
 }
