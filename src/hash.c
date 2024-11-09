@@ -115,24 +115,16 @@ int hash_insert(struct hash_table *table, void *key, size_t key_len, void *value
         return HASH_ERR_NO_MEM;
     }
 
-    entry->value = malloc(value_len);
-    if (!entry->value)
-    {
-        free(entry->key);
-        free(entry);
-        return HASH_ERR_NO_MEM;
-    }
-
     memcpy(entry->key, key, key_len);
-    memcpy(entry->value, value, value_len);
     entry->key_len = key_len;
+    entry->value = value;
     entry->value_len = value_len;
 
     list_add_head(&table->buckets[hash], &entry->entry);
     return HASH_OK;
 }
 
-int hash_get(struct hash_table *table, void *key, size_t key_len, void *value, size_t value_len)
+int hash_get(struct hash_table *table, void *key, size_t key_len, void **value, size_t *value_len)
 {
     struct hash_entry *node;
 
@@ -145,12 +137,14 @@ int hash_get(struct hash_table *table, void *key, size_t key_len, void *value, s
     node = hash_lookup(table, key, key_len);
     
     if (!node)
+    {
+        *value_len = 0;
         return HASH_ERR_KEY_DOES_NOT_EXIST;
+    }
 
-    if (value_len < node->value_len)
-        return HASH_ERR_BUFFER_TOO_SMALL;
+    *value = node->value;
+    *value_len = node->value_len;
 
-    memcpy(value, node->value, node->value_len);
     return HASH_OK;
 }
 
@@ -168,7 +162,6 @@ int hash_delete(struct hash_table *table, void *key, size_t key_len)
         return HASH_ERR_KEY_DOES_NOT_EXIST;
 
     list_remove(&node->entry);
-    free(node->value);
     free(node->key);
     free(node);
 
