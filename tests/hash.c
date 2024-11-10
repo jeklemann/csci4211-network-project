@@ -3,40 +3,90 @@
 #include "hash.h"
 #include "test.h"
 
+struct item
+{
+    struct list entry;
+
+    char *key;
+    char *val;
+};
+
+static char *get_value(struct hash_table *table, void *key, size_t key_len)
+{
+    struct list *bucket, *cur;
+    struct item *item;
+    size_t hash;
+
+    hash = hash_bytes(key, key_len) % table->size;
+    bucket = &table->buckets[hash];
+
+    cur = bucket->next;
+    while (cur != bucket)
+    {
+        item = LIST_ENTRY(cur, struct item, entry);
+        if (!strcmp(item->key, (char *)key))
+            return item->val;
+    }
+
+    return NULL;
+}
+
+static struct item *del_item(struct hash_table *table, void *key, size_t key_len)
+{
+    struct list *bucket, *cur;
+    struct item *item;
+    size_t hash;
+
+    hash = hash_bytes(key, key_len) % table->size;
+    bucket = &table->buckets[hash];
+
+    cur = bucket->next;
+    while (cur != bucket)
+    {
+        item = LIST_ENTRY(cur, struct item, entry);
+        if (!strcmp(item->key, (char *)key))
+        {
+            list_remove(&item->entry);
+            return item;
+        }
+    }
+
+    return NULL;
+}
+
 int main(void)
 {
     struct hash_table *table = hash_init(16);
-    char *key1 = "foo", *val1 = "bar";
-    char *key2 = "foobar", *val2 = "quux";
+    struct item item1 = {
+        .key = "foo",
+        .val = "bar"
+    };
+    struct item item2 = {
+        .key = "baz",
+        .val = "qux"
+    };
+    struct item *item_ptr;
     char *buf;
-    size_t len;
     int ret;
 
-    ret = hash_insert(table, key1, strlen(key1) + 1, val1, strlen(val1) + 1);
+    ret = hash_insert(table, item1.key, strlen(item1.key) + 1, &item1.entry);
     run_test(ret == HASH_OK, "expected: %d, got: %d\n", HASH_OK, ret);
-    ret = hash_insert(table, key1, strlen(key1) + 1, val1, strlen(val1) + 1);
-    run_test(ret == HASH_ERR_KEY_EXISTS, "expected: %d, got: %d\n", HASH_ERR_KEY_EXISTS, ret);
-    ret = hash_insert(table, key2, strlen(key2) + 1, val2, strlen(val2) + 1);
+    ret = hash_insert(table, item2.key, strlen(item2.key) + 1, &item2.entry);
     run_test(ret == HASH_OK, "expected: %d, got: %d\n", HASH_OK, ret);
 
-    ret = hash_get(table, key1, strlen(key1) + 1, (void **)&buf, &len);
-    run_test(ret == HASH_OK, "expected: %d, got: %d\n", HASH_OK, ret);
-    run_test(!strcmp(val1, buf), "expected: %s, got: %s\n", val1, buf);
-    run_test(len == strlen(val1) + 1, "expected: %d, got: %d\n", strlen(val1) + 1, len);
-    ret = hash_get(table, key2, strlen(key2) + 1, (void **)&buf, &len);
-    run_test(ret == HASH_OK, "expected: %d, got: %d\n", HASH_OK, ret);
-    run_test(!strcmp(val2, buf), "expected: %s, got: %s\n", val2, buf);
-    run_test(len == strlen(val2) + 1, "expected: %d, got: %d\n", strlen(val2) + 1, len);
-    ret = hash_get(table, val1, strlen(val1) + 1, (void **)&buf, &len);
-    run_test(ret == HASH_ERR_KEY_DOES_NOT_EXIST, "expected: %d, got: %d\n", HASH_ERR_KEY_DOES_NOT_EXIST, ret);
-    run_test(!len, "expected: %d, got: %d\n", 0, len);
+    buf = get_value(table, item1.key, strlen(item1.key) + 1);
+    run_test(buf == item1.val, "expected: %p, got: %p\n", &item1.val, buf);
+    buf = get_value(table, item2.key, strlen(item2.key) + 1);
+    run_test(buf == item2.val, "expected: %p, got: %p\n", &item2.val, buf);
+    buf = get_value(table, item2.val, strlen(item2.val) + 1);
+    run_test(!buf, "expected: %p, got: %p\n", NULL, buf);
 
-    ret = hash_delete(table, key1, strlen(key1) + 1);
-    run_test(ret == HASH_OK, "expected: %d, got: %d\n", HASH_OK, ret);
-    ret = hash_delete(table, key1, strlen(key1) + 1);
-    run_test(ret == HASH_ERR_KEY_DOES_NOT_EXIST, "expected: %d, got: %d\n", HASH_ERR_KEY_DOES_NOT_EXIST, ret);
-    ret = hash_delete(table, key2, strlen(key2) + 1);
-    run_test(ret == HASH_OK, "expected: %d, got: %d\n", HASH_OK, ret);
+    item_ptr = del_item(table, item1.key, strlen(item1.key) + 1);
+    run_test(item_ptr == &item1, "expected: %p, got: %p\n", &item1, item_ptr);
+    item_ptr = del_item(table, item1.key, strlen(item1.key) + 1);
+    run_test(!item_ptr, "expected: %p, got: %p\n", NULL, item_ptr);
+    item_ptr = del_item(table, item2.key, strlen(item2.key) + 1);
+    run_test(item_ptr == &item2, "expected: %p, got: %p\n", &item2, item_ptr);
 
     hash_free(table);
 

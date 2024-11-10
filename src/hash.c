@@ -58,7 +58,7 @@ void hash_free(struct hash_table *table)
     free(table);
 }
 
-static uint64_t hash_bytes(void *key, size_t len)
+uint64_t hash_bytes(void *key, size_t len)
 {
     static const uint64_t fnv_prime = 0x100000001b3;
     uint64_t hash = 0xcbf29ce484222325;
@@ -71,100 +71,18 @@ static uint64_t hash_bytes(void *key, size_t len)
     return hash;
 }
 
-static struct hash_entry *hash_lookup(struct hash_table *table, void *key, size_t key_len)
+int hash_insert(struct hash_table *table, void *key, size_t key_len, struct list *elem)
 {
-    size_t bucket = hash_bytes(key, key_len) % table->size;
-    struct list *cur = table->buckets[bucket].next;
-    struct hash_entry *node;
-
-    while (cur != &table->buckets[bucket])
-    {
-        node = LIST_ENTRY(cur, struct hash_entry, entry);
-        if (node->key_len == key_len && !memcmp(node->key, key, key_len))
-            return node;
-        cur = cur->next;
-    }
-
-    return NULL;
-}
-
-int hash_insert(struct hash_table *table, void *key, size_t key_len, void *value, size_t value_len)
-{
-    struct hash_entry *entry;
     size_t hash;
  
     assert(table);
     assert(key);
     assert(key_len);
-    assert(value);
-    assert(value_len);
-
-    if (hash_lookup(table, key, key_len))
-        return HASH_ERR_KEY_EXISTS;
-
-    entry = malloc(sizeof(*entry));
-    if (!entry)
-        return HASH_ERR_NO_MEM;
+    assert(elem);
 
     hash = hash_bytes(key, key_len) % table->size; 
 
-    entry->key = malloc(key_len);
-    if (!entry->key)
-    {
-        free(entry);
-        return HASH_ERR_NO_MEM;
-    }
-
-    memcpy(entry->key, key, key_len);
-    entry->key_len = key_len;
-    entry->value = value;
-    entry->value_len = value_len;
-
-    list_add_head(&table->buckets[hash], &entry->entry);
-    return HASH_OK;
-}
-
-int hash_get(struct hash_table *table, void *key, size_t key_len, void **value, size_t *value_len)
-{
-    struct hash_entry *node;
-
-    assert(table);
-    assert(key);
-    assert(key_len);
-    assert(value);
-    assert(value_len);
-
-    node = hash_lookup(table, key, key_len);
-    
-    if (!node)
-    {
-        *value_len = 0;
-        return HASH_ERR_KEY_DOES_NOT_EXIST;
-    }
-
-    *value = node->value;
-    *value_len = node->value_len;
-
-    return HASH_OK;
-}
-
-int hash_delete(struct hash_table *table, void *key, size_t key_len)
-{
-    struct hash_entry *node;
-
-    assert(table);
-    assert(key);
-    assert(key_len);
-
-    node = hash_lookup(table, key, key_len);
-    
-    if (!node)
-        return HASH_ERR_KEY_DOES_NOT_EXIST;
-
-    list_remove(&node->entry);
-    free(node->key);
-    free(node);
-
+    list_add_head(&table->buckets[hash], elem);
     return HASH_OK;
 }
 
