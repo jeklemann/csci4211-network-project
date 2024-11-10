@@ -164,6 +164,7 @@ void start_server(unsigned short port)
     struct sockaddr_in addr;
     struct connection *conn;
     unsigned int addr_len;
+    int enable = 1;
 
     connected_clients = hash_init(16);
     if (!connected_clients)
@@ -182,6 +183,12 @@ void start_server(unsigned short port)
     if (sock == -1)
     {
         perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)))
+    {
+        perror("setsockopt");
         exit(EXIT_FAILURE);
     }
 
