@@ -9,7 +9,11 @@
 #include "hash.h"
 #include "server.h"
 
+/* Thread and socket information only */
 static struct list connections = { &connections, &connections };
+
+/* Connected clients */
+static struct hash_table *connected_clients;
 
 static void close_connection(struct connection *conn)
 {
@@ -68,8 +72,40 @@ static size_t split_string(char *str, char delim, size_t len, char ***out)
     return num_tok;
 }
 
-static void parse_command(char *cmd, size_t len)
+static void connect_command(struct connection *conn, char **cmd_toks, size_t num_toks)
 {
+    printf("Hello\n");
+
+    if (num_toks < 2)
+        return; /* Specification does not demand we respond */
+}
+
+static void publish_command(struct connection *conn, char **cmd_toks, size_t num_toks)
+{
+    printf("Pub\n");
+
+    if (num_toks < 4)
+        return; /* Specification does not demand we respond */
+}
+
+static void subscribe_command(struct connection *conn, char **cmd_toks, size_t num_toks)
+{
+    printf("Sub\n");
+
+    if (num_toks < 3)
+        return; /* Specification does not demand we respond */
+}
+
+static void disconnect_command(struct connection *conn, char **cmd_toks, size_t num_toks)
+{
+    printf("Bye\n");
+
+    return;
+}
+
+static void parse_command(struct connection *conn, char *cmd, size_t len)
+{
+    static char *NOT_CONNECTED = "NOT_CONNECTED";
     size_t num_toks;
     char **toks;
 
@@ -84,24 +120,38 @@ static void parse_command(char *cmd, size_t len)
         return;
     }
 
-    for (int i = 0; i < num_toks; i++)
-        printf("Token: %s\n", toks[i]);
+    if (!strcmp(toks[0], "CONNECT"))
+    {
+        connect_command(conn, toks, num_toks);
+        goto out;
+    }
 
+    if (!conn->name)
+    {
+        send(conn->sock, NOT_CONNECTED, strlen(NOT_CONNECTED), 0);
+        goto out;
+    }
+
+    if (!strcmp(toks[0], "PUBLISH"))
+        publish_command(conn, toks, num_toks);
+    else if (!strcmp(toks[0], "SUBSCRIBE"))
+        subscribe_command(conn, toks, num_toks);
+    else if (!strcmp(toks[0], "DISCONNECT"))
+        disconnect_command(conn, toks, num_toks);
+
+out:
     free(toks);
 }
 
 static void *handle_connection(void *data)
 {
     struct connection *conn = (struct connection *)data;
-    static char buf[64];
+    static char buf[1024];
     size_t len;
 
-    list_add_head(&connections, &conn->entry);
-
+    /* TODO: Handle connection dropping */
     len = recv(conn->sock, buf, sizeof(buf), 0);
-    parse_command(buf, len);
-
-    send(conn->sock, buf, len, 0);
+    parse_command(conn, buf, len);
 
     close_connection(conn);
 
@@ -114,6 +164,13 @@ void start_server(unsigned short port)
     struct sockaddr_in addr;
     struct connection *conn;
     unsigned int addr_len;
+
+    connected_clients = hash_init(16);
+    if (!connected_clients)
+    {
+        perror("hash_init");
+        exit(EXIT_FAILURE);
+    }
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
@@ -151,6 +208,9 @@ void start_server(unsigned short port)
 
         conn = malloc(sizeof(*conn));
         conn->sock = conn_sock;
+        conn->name = NULL;
+        list_init(&conn->entry);
+
         if ((thread_ret = pthread_create(&conn->thread, NULL, handle_connection, conn)))
         {
             free(conn);
