@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +36,20 @@ static void close_connection(struct connection *conn)
     free(conn);
 }
 
+static void reply_conn(struct connection *conn, char *msg, size_t msg_len)
+{
+    int res;
+
+    res = send(conn->sock, msg, msg_len, 0);
+    if (res == -1 && (errno == ENOTCONN || errno == ECONNRESET))
+    {
+        perror("send");
+        conn->closing = 1;
+    }
+
+    return;
+}
+
 static struct topic *get_topic(char *name)
 {
     struct list *bucket, *cur;
@@ -50,6 +65,8 @@ static struct topic *get_topic(char *name)
         topic = LIST_ENTRY(cur, struct topic, entry);
         if (!strcmp(topic->name, name))
             return topic;
+
+        cur = cur->next;
     }
 
     return NULL;
@@ -62,8 +79,8 @@ static struct connection *get_client_by_name(char *name)
     struct connection *conn;
     size_t hash;
 
-    hash = hash_bytes(name, strlen(name) + 1) % topics->size;
-    bucket = &topics->buckets[hash];
+    hash = hash_bytes(name, strlen(name) + 1) % online_clients->size;
+    bucket = &online_clients->buckets[hash];
 
     cur = bucket->next;
     while (cur != bucket)
@@ -71,6 +88,8 @@ static struct connection *get_client_by_name(char *name)
         conn = LIST_ENTRY(cur, struct connection, entry);
         if (!strcmp(conn->name, name))
             return conn;
+
+        cur = cur->next;
     }
 
     return NULL;
@@ -83,8 +102,8 @@ static int exists_sub_by_name(struct topic *topic, char *name)
     struct subscription *sub;
     size_t hash;
 
-    hash = hash_bytes(name, strlen(name) + 1) % topics->size;
-    bucket = &topics->buckets[hash];
+    hash = hash_bytes(name, strlen(name) + 1) % topic->subs->size;
+    bucket = &topic->subs->buckets[hash];
 
     cur = bucket->next;
     while (cur != bucket)
@@ -92,24 +111,60 @@ static int exists_sub_by_name(struct topic *topic, char *name)
         sub = LIST_ENTRY(cur, struct subscription, entry);
         if (!strcmp(sub->client_name, name))
             return 1;
+
+        cur = cur->next;
     }
 
     return 0;
 }
 
-static void reply_conn(struct connection *conn, char *msg, size_t msg_len)
+static void send_to_client_by_name(char *client_name, char *msg, size_t msg_len)
 {
-    int res;
+    struct connection *conn;
 
-    res = send(conn->sock, msg, msg_len, 0);
-    if (res == -1 && (errno == ENOTCONN || errno == ECONNRESET))
+    pthread_mutex_lock(&online_lock);
+
+    conn = get_client_by_name(client_name);
+    if (!conn)
     {
-        perror("send");
-        conn->closing = 1;
+        pthread_mutex_unlock(&online_lock);
+        return;
     }
-    else if (!res)
+
+    reply_conn(conn, msg, msg_len);
+
+    pthread_mutex_unlock(&online_lock);
+
+    return;
+}
+
+/* Must lock topic->subs_lock */
+static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
+{
+    struct list *bucket, *cur;
+    struct subscription *sub;
+    size_t len, i, msg_size;
+    char msg[1024];
+
+    assert(num_toks >= 4);
+
+    msg_size = sizeof(msg) / sizeof(*msg);
+    len = snprintf(msg, msg_size, "<%s, %s, %s, %s>", cmd[0], cmd[1], cmd[2], cmd[3]);
+    if (len >= msg_size)
+        len = msg_size - 1;
+
+    assert(len > 1);
+
+    for (i = 0; i < topic->subs->size; i++)
     {
-        conn->closing = 1;
+        bucket = &topic->subs->buckets[i];
+        cur = bucket->next;
+        while (cur != bucket)
+        {
+            sub = LIST_ENTRY(cur, struct subscription, entry);
+            send_to_client_by_name(sub->client_name, msg, len);
+            cur = cur->next;
+        }
     }
 
     return;
@@ -152,10 +207,37 @@ static void connect_command(struct connection *conn, char **cmd_toks, size_t num
 
 static void publish_command(struct connection *conn, char **cmd_toks, size_t num_toks)
 {
-    printf("Pub\n");
+    static char *NOT_FOUND = "<ERROR: Subject Not Found>";
+    static char *NOT_SUBBED = "<ERROR: Not Subscribed>";
+    char *name, *topic_name;
+    struct topic *topic;
 
     if (num_toks < 4)
         return; /* Specification does not demand we respond */
+
+    name = cmd_toks[0];
+    topic_name = cmd_toks[2];
+    topic = get_topic(topic_name);
+    if (!topic)
+    {
+        reply_conn(conn, NOT_FOUND, strlen(NOT_FOUND));
+        return;
+    }
+
+    pthread_mutex_lock(&topic->subs_lock);
+
+    if (!exists_sub_by_name(topic, name))
+    {
+        reply_conn(conn, NOT_SUBBED, strlen(NOT_SUBBED));
+        pthread_mutex_unlock(&topic->subs_lock);
+        return;
+    }
+
+    publish_msg(topic, cmd_toks, num_toks);
+
+    pthread_mutex_unlock(&topic->subs_lock);
+
+    return;
 }
 
 static void subscribe_command(struct connection *conn, char **cmd_toks, size_t num_toks)
