@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
@@ -42,10 +43,19 @@ struct hash_table *hash_init(size_t size)
 
     ret = malloc(sizeof(*ret));
     if (!ret)
+    {
+        perror("malloc");
         return NULL;
+    }
 
     ret->size = size;
     ret->buckets = malloc(size * sizeof(*ret->buckets));
+    if (!ret->buckets)
+    {
+        perror("malloc");
+        free(ret);
+        return NULL;
+    }
     for (i = 0; i < size; i++)
         list_init(&ret->buckets[i]);
 
