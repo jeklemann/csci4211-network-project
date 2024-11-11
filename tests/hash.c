@@ -67,12 +67,9 @@ int main(void)
     };
     struct item *item_ptr;
     char *buf;
-    int ret;
 
-    ret = hash_insert(table, item1.key, strlen(item1.key) + 1, &item1.entry);
-    run_test(ret == HASH_OK, "expected: %d, got: %d\n", HASH_OK, ret);
-    ret = hash_insert(table, item2.key, strlen(item2.key) + 1, &item2.entry);
-    run_test(ret == HASH_OK, "expected: %d, got: %d\n", HASH_OK, ret);
+    hash_insert(table, item1.key, strlen(item1.key) + 1, &item1.entry);
+    hash_insert(table, item2.key, strlen(item2.key) + 1, &item2.entry);
 
     buf = get_value(table, item1.key, strlen(item1.key) + 1);
     run_test(buf == item1.val, "expected: %p, got: %p\n", &item1.val, buf);

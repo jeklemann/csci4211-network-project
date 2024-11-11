@@ -71,7 +71,7 @@ uint64_t hash_bytes(void *key, size_t len)
     return hash;
 }
 
-int hash_insert(struct hash_table *table, void *key, size_t key_len, struct list *elem)
+void hash_insert(struct hash_table *table, void *key, size_t key_len, struct list *elem)
 {
     size_t hash;
  
@@ -83,6 +83,6 @@ int hash_insert(struct hash_table *table, void *key, size_t key_len, struct list
     hash = hash_bytes(key, key_len) % table->size; 
 
     list_add_head(&table->buckets[hash], elem);
-    return HASH_OK;
+    return;
 }
 
