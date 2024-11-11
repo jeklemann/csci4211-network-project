@@ -56,7 +56,7 @@ static void disconnect_command(struct connection *conn, char **cmd_toks, size_t 
 
 static void parse_command(struct connection *conn, char *cmd, size_t len)
 {
-    static char *NOT_CONNECTED = "NOT_CONNECTED";
+    static char *NOT_CONNECTED = "NOT_CONNECTED", *DELIM = ", ";
     size_t num_toks;
     char **toks;
 
@@ -64,7 +64,7 @@ static void parse_command(struct connection *conn, char *cmd, size_t len)
     fwrite(cmd, len, 1, stdout);
     printf("\n");
 
-    num_toks = split_string(cmd, ' ', len, &toks);
+    num_toks = split_string(cmd + 1, len - 2, DELIM, strlen(DELIM), &toks);
     if (!num_toks)
     {
         fprintf(stderr, "Unable to parse command, dropping\n");
