@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,25 +11,57 @@
 #include "server.h"
 #include "utils.h"
 
-/* Thread and socket information only */
-static struct list connections = { &connections, &connections };
-
 /* Connected clients */
-static struct hash_table *connected_clients;
+static struct hash_table *online_clients;
+pthread_mutex_t online_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void close_connection(struct connection *conn)
 {
-    close(conn->sock);
+    pthread_mutex_lock(&online_lock);
     list_remove(&conn->entry);
+    pthread_mutex_unlock(&online_lock);
+
+    close(conn->sock);
+    free(conn->name);
     free(conn);
 }
 
 static void connect_command(struct connection *conn, char **cmd_toks, size_t num_toks)
 {
-    printf("Hello\n");
+    static char *CONN_ACK = "CONN_ACK";
+    char *name;
+    int res;
 
     if (num_toks < 2)
         return; /* Specification does not demand we respond */
+
+    name = strdup(cmd_toks[0]);
+    if (name == NULL)
+    {
+        perror("strdup");
+        return;
+    }
+
+    pthread_mutex_lock(&online_lock);
+
+    list_remove(&conn->entry); /* In case of resending the CONN command */
+    conn->name = name;
+    hash_insert(online_clients, conn->name, strlen(conn->name) + 1, &conn->entry);
+
+    pthread_mutex_unlock(&online_lock);
+
+    res = send(conn->sock, CONN_ACK, strlen(CONN_ACK), 0);
+    if (res == -1 && (errno == ENOTCONN || errno == ECONNRESET))
+    {
+        perror("send");
+        conn->closing = 1;
+    }
+    else if (!res)
+    {
+        conn->closing = 1;
+    }
+
+    return;
 }
 
 static void publish_command(struct connection *conn, char **cmd_toks, size_t num_toks)
@@ -49,20 +82,31 @@ static void subscribe_command(struct connection *conn, char **cmd_toks, size_t n
 
 static void disconnect_command(struct connection *conn, char **cmd_toks, size_t num_toks)
 {
-    printf("Bye\n");
+    static char *DISC_ACK = "<DISC_ACK>";
+    int res;
+
+    pthread_mutex_lock(&online_lock);
+
+    list_remove(&conn->entry); /* In case of resending the CONNECT command */
+    conn->closing = 1;
+
+    pthread_mutex_unlock(&online_lock);
+
+    res = send(conn->sock, DISC_ACK, strlen(DISC_ACK), 0);
+    if (res == -1)
+        perror("send"); /* Result doesn't matter, we are closing this */
 
     return;
 }
 
 static void parse_command(struct connection *conn, char *cmd, size_t len)
 {
-    static char *NOT_CONNECTED = "NOT_CONNECTED", *DELIM = ", ";
+    static char *DELIM = ", ";
     size_t num_toks;
     char **toks;
 
-    printf("Received command: ");
-    fwrite(cmd, len, 1, stdout);
-    printf("\n");
+    if (len < 2 || cmd[0] != '<' || cmd[len - 1] != '>')
+        return; /* Requests must be surrounded by <> */
 
     num_toks = split_string(cmd + 1, len - 2, DELIM, strlen(DELIM), &toks);
     if (!num_toks)
@@ -71,24 +115,22 @@ static void parse_command(struct connection *conn, char *cmd, size_t len)
         return;
     }
 
-    if (!strcmp(toks[0], "CONNECT"))
+    if (!strcmp(toks[0], "DISC"))
     {
-        connect_command(conn, toks, num_toks);
-        goto out;
-    }
-
-    if (!conn->name)
-    {
-        send(conn->sock, NOT_CONNECTED, strlen(NOT_CONNECTED), 0);
-        goto out;
-    }
-
-    if (!strcmp(toks[0], "PUBLISH"))
-        publish_command(conn, toks, num_toks);
-    else if (!strcmp(toks[0], "SUBSCRIBE"))
-        subscribe_command(conn, toks, num_toks);
-    else if (!strcmp(toks[0], "DISCONNECT"))
         disconnect_command(conn, toks, num_toks);
+        goto out;
+    }
+
+    /* Remaining commands have the command in the second argument */
+    if (num_toks < 2)
+        goto out;
+
+    if (!strcmp(toks[1], "PUB"))
+        publish_command(conn, toks, num_toks);
+    else if (!strcmp(toks[1], "SUB"))
+        subscribe_command(conn, toks, num_toks);
+    else if (!strcmp(toks[1], "CONN"))
+        connect_command(conn, toks, num_toks);
 
 out:
     free(toks);
@@ -98,11 +140,25 @@ static void *handle_connection(void *data)
 {
     struct connection *conn = (struct connection *)data;
     static char buf[1024];
-    size_t len;
+    ssize_t len;
 
-    /* TODO: Handle connection dropping */
-    len = recv(conn->sock, buf, sizeof(buf), 0);
-    parse_command(conn, buf, len);
+    while (!conn->closing)
+    {
+        len = recv(conn->sock, buf, sizeof(buf), 0);
+        if (len == -1 && (errno == ENOTCONN || errno == ECONNRESET))
+        {
+            perror("recv");
+            conn->closing = 1;
+        }
+        else if (len > 0)
+        {
+            parse_command(conn, buf, len);
+        }
+        else
+        {
+            conn->closing = 1;
+        }
+    }
 
     close_connection(conn);
 
@@ -117,8 +173,8 @@ void start_server(unsigned short port)
     unsigned int addr_len;
     int enable = 1;
 
-    connected_clients = hash_init(16);
-    if (!connected_clients)
+    online_clients = hash_init(16);
+    if (!online_clients)
     {
         perror("hash_init");
         exit(EXIT_FAILURE);
@@ -167,6 +223,7 @@ void start_server(unsigned short port)
         conn = malloc(sizeof(*conn));
         conn->sock = conn_sock;
         conn->name = NULL;
+        conn->closing = 0;
         list_init(&conn->entry);
 
         if ((thread_ret = pthread_create(&conn->thread, NULL, handle_connection, conn)))
