@@ -216,7 +216,7 @@ void start_client(struct addrinfo *addr)
 
     select_name(&client);
 
-    printf("Connected as %s!\nCommands:\nSUB <TOPIC>\nPUB <TOPIC> <MESSAGE>\nDISC", client.client_name);
+    printf("Connected as %s!\nCommands:\nSUB <TOPIC>\nPUB <TOPIC> <MESSAGE>\nDISC\n\n", client.client_name);
     while (!client.closing)
     {
         s = fgets(cmd, sizeof(cmd) / sizeof(*cmd), stdin);
