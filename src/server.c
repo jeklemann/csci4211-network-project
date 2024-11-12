@@ -162,6 +162,7 @@ static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
 static void connect_command(struct connection *conn, char **cmd_toks, size_t num_toks)
 {
     static char *CONN_ACK = "<CONN_ACK>";
+    struct connection *found;
     char *name;
 
     if (num_toks < 2)
@@ -176,9 +177,13 @@ static void connect_command(struct connection *conn, char **cmd_toks, size_t num
 
     pthread_mutex_lock(&online_lock);
 
-    if (get_client_by_name(name))
+    found = get_client_by_name(name);
+    if (found)
     {
-        /* This name is taken, we have no defined error in the standard though */
+        /* Only ACK if this is already connected */
+        if (found == conn)
+            reply_conn(conn, CONN_ACK, strlen(CONN_ACK));
+
         pthread_mutex_unlock(&online_lock);
         return;
     }
