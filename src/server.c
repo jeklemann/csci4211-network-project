@@ -59,14 +59,11 @@ static struct topic *get_topic(char *name)
     hash = hash_bytes(name, strlen(name) + 1) % topics->size;
     bucket = &topics->buckets[hash];
 
-    cur = bucket->next;
-    while (cur != bucket)
+    for (cur = bucket->next; cur != bucket; cur = cur->next)
     {
         topic = LIST_ENTRY(cur, struct topic, entry);
         if (!strcmp(topic->name, name))
             return topic;
-
-        cur = cur->next;
     }
 
     return NULL;
@@ -82,14 +79,11 @@ static struct connection *get_client_by_name(char *name)
     hash = hash_bytes(name, strlen(name) + 1) % online_clients->size;
     bucket = &online_clients->buckets[hash];
 
-    cur = bucket->next;
-    while (cur != bucket)
+    for (cur = bucket->next; cur != bucket; cur = cur->next)
     {
         conn = LIST_ENTRY(cur, struct connection, entry);
         if (!strcmp(conn->name, name))
             return conn;
-
-        cur = cur->next;
     }
 
     return NULL;
@@ -105,14 +99,11 @@ static int exists_sub_by_name(struct topic *topic, char *name)
     hash = hash_bytes(name, strlen(name) + 1) % topic->subs->size;
     bucket = &topic->subs->buckets[hash];
 
-    cur = bucket->next;
-    while (cur != bucket)
+    for (cur = bucket->next; cur != bucket; cur = cur->next)
     {
         sub = LIST_ENTRY(cur, struct subscription, entry);
         if (!strcmp(sub->client_name, name))
             return 1;
-
-        cur = cur->next;
     }
 
     return 0;
@@ -158,12 +149,10 @@ static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
     for (i = 0; i < topic->subs->size; i++)
     {
         bucket = &topic->subs->buckets[i];
-        cur = bucket->next;
-        while (cur != bucket)
+        for (cur = bucket->next; cur != bucket; cur = cur->next)
         {
             sub = LIST_ENTRY(cur, struct subscription, entry);
             send_to_client_by_name(sub->client_name, msg, len);
-            cur = cur->next;
         }
     }
 
