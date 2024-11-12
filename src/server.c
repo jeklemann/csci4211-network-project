@@ -161,7 +161,7 @@ static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
 
 static void connect_command(struct connection *conn, char **cmd_toks, size_t num_toks)
 {
-    static char *CONN_ACK = "CONN_ACK";
+    static char *CONN_ACK = "<CONN_ACK>";
     char *name;
 
     if (num_toks < 2)
