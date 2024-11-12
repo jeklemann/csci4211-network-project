@@ -3,6 +3,9 @@
 #ifndef __MQTTD_UTILS_H
 #define __MQTTD_UTILS_H
 
+/* TODO: ARRAY_SIZE, store cmd buffer size (1024), hash table sizes (16 usually),
+ * generally nuke magic numbers */
+
 char *strnstr(char *haystack, char *needle, size_t haystack_len, size_t needle_len);
 
 /* Allocated as one contiuous block which is freed in one operation.

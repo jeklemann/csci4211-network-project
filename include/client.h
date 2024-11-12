@@ -1,11 +1,20 @@
+#include <netdb.h>
 #include <pthread.h>
 
 #include "hash.h"
 
 struct client
 {
-    struct list entry;
     char *client_name;
+    int sock;
+    int closing;
 };
 
-void start_client(void);
+enum
+{
+    SEND_OK,
+    SEND_TIMEOUT,
+    SEND_FAIL,
+};
+
+void start_client(struct addrinfo *addr);

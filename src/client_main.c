@@ -1,5 +1,7 @@
 #include <limits.h>
+#include <netdb.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "client.h"
 
@@ -16,37 +18,32 @@ void usage()
 
 int main(int argc, char **argv)
 {
-    int p;
+    struct addrinfo hints, *addr;
+    char *node = "localhost", *service = "1883";
+    int p, r;
 
     if (argc > 3)
         usage();
 
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = 0;
+    hints.ai_protocol = 0;
     if (argc > 1)
-        printf("FIXME: Implement getaddrinfo call\n");
+        node = argv[1];
 
-    if (argc == 3)
-        p = atoi(argv[1]);
-    else
-        p = DEFAULT_PORT;
+    if (argc > 2)
+        service = argv[2];
 
-    if (!p)
+    r = getaddrinfo(node, service, &hints, &addr);
+    if (r)
     {
-        printf("invalid port\n");
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(r));
         usage();
+        exit(EXIT_FAILURE);
     }
 
-    if (p > USHRT_MAX)
-    {
-        printf("port is too high\n");
-        usage();
-    }
-
-    if (p < 1024)
-    {
-        printf("port should not be below 1024\n");
-        usage();
-    }
-
-    start_client();
+    start_client(addr);
     return 0;
 }
