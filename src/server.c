@@ -41,7 +41,7 @@ static void reply_conn(struct connection *conn, char *msg, size_t msg_len)
     int res;
 
     res = send(conn->sock, msg, msg_len, 0);
-    if (res == -1 && (errno == ENOTCONN || errno == ECONNRESET))
+    if (res == -1 && errno != EAGAIN && errno != EWOULDBLOCK)
     {
         perror("send");
         conn->closing = 1;
