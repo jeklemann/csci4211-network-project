@@ -1,6 +1,7 @@
 #include <limits.h>
 #include <netdb.h>
 #include <stdio.h>
+#include <sys/socket.h>
 #include <string.h>
 
 #include "client.h"

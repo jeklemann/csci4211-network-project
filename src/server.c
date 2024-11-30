@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
 #include <netinet/ip.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -319,7 +321,7 @@ static void parse_command(struct connection *conn, char *cmd, size_t len)
     if (len < 2 || cmd[0] != '<' || cmd[len - 1] != '>')
         return; /* Requests must be surrounded by <> */
 
-    num_toks = split_string(cmd + 1, len - 2, DELIM, strlen(DELIM), &toks);
+    num_toks = split_string(cmd + 1, len - 2, DELIM, &toks);
     if (!num_toks)
     {
         fprintf(stderr, "Unable to parse command, dropping\n");

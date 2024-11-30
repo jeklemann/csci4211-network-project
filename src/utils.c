@@ -5,15 +5,14 @@
 
 #include "utils.h"
 
-char *strnstr(char *haystack, char *needle, size_t haystack_len, size_t needle_len)
+static char *_strnstr(char *haystack, char *needle, size_t haystack_len)
 {
     assert(haystack_len);
-    assert(needle_len);
 
-    size_t h = haystack_len - needle_len + 1;
+    size_t h = haystack_len - strlen(needle) + 1;
     while (h--)
     {
-        if (!strncmp(haystack, needle, needle_len))
+        if (!strncmp(haystack, needle, haystack_len))
             return haystack;
 
         haystack++;
@@ -22,9 +21,9 @@ char *strnstr(char *haystack, char *needle, size_t haystack_len, size_t needle_l
     return NULL;
 }
 
-size_t split_string(char *str, size_t str_len, char *delim, size_t delim_len, char ***out)
+size_t split_string(char *str, size_t str_len, char *delim, char ***out)
 {
-    size_t i, num_tok = 0;
+    size_t i, num_tok = 0, delim_len = strlen(delim);
     char *start, *ptr, **ret;
 
     ptr = str;
@@ -37,7 +36,7 @@ size_t split_string(char *str, size_t str_len, char *delim, size_t delim_len, ch
             break;
 
         num_tok++;
-        ptr = strnstr(ptr, delim, str_len - (ptr - str), delim_len);
+        ptr = _strnstr(ptr, delim, str_len - (ptr - str));
     }
     while (ptr);
 
@@ -61,7 +60,7 @@ size_t split_string(char *str, size_t str_len, char *delim, size_t delim_len, ch
             ptr += delim_len;
 
         ret[i] = ptr;
-        ptr = strnstr(ptr, delim, str_len - (ptr - start), delim_len);
+        ptr = _strnstr(ptr, delim, str_len - (ptr - start));
         if (ptr)
         {
             *ptr = '\0';

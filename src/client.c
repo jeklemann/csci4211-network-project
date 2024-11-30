@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -230,7 +232,7 @@ void start_client(struct addrinfo *addr)
         if (s)
             *s = '\0';
 
-        num_toks = split_string(cmd, strlen(cmd), DELIM, 1, &toks);
+        num_toks = split_string(cmd, strlen(cmd), DELIM, &toks);
         if (!num_toks)
         {
             printf("Unable to parse command.\n");
