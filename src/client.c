@@ -16,6 +16,10 @@
 
 /* TODO: Handle receiving published data */
 
+/* Create a thread */
+/* Constantly wait for a message. Once received, if a PUB, handle, otherwise, set to latest (lock and signal),
+ * then new one will lock and signal back once taken, then return it if so (memcpy the resp) */
+
 static struct client client;
 
 static void prompt_name(char *buf, size_t buf_len)
@@ -69,7 +73,7 @@ static int send_data(int sock, char *msg, size_t msg_len, char *response, size_t
     int res;
 
     res = send(sock, msg, msg_len, 0);
-    if (res == -1 && (errno == ENOTCONN || errno == ECONNRESET))
+    if (res == -1 && errno != EAGAIN && errno != EWOULDBLOCK)
     {
         perror("send");
         return SEND_FAIL;
