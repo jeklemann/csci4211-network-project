@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdint.h>
 
 #ifndef __MQTTD_UTILS_H
 #define __MQTTD_UTILS_H
@@ -10,5 +11,7 @@
  * delim must be null terminated
  * Returns 0 if memory fails to allocate. Otherwise, data is set to out. */
 size_t split_string(char *str, size_t str_len, char *delim, char ***out);
+
+uint64_t get_current_time(void);
 
 #endif /* __MQTTD_UTILS_H */

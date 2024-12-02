@@ -1,7 +1,9 @@
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "utils.h"
 
@@ -73,3 +75,10 @@ size_t split_string(char *str, size_t str_len, char *delim, char ***out)
     return num_tok;
 }
 
+uint64_t get_current_time(void)
+{
+    struct timespec time;
+    clock_gettime(CLOCK_REALTIME, &time);
+
+    return time.tv_sec;
+}
