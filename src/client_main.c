@@ -21,7 +21,7 @@ int main(int argc, char **argv)
 {
     struct addrinfo hints, *addr;
     char *node = "localhost", *service = "1883";
-    int p, r;
+    int r;
 
     if (argc > 3)
         usage();
