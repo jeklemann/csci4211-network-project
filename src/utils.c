@@ -9,10 +9,11 @@ static char *_strnstr(char *haystack, char *needle, size_t haystack_len)
 {
     assert(haystack_len);
 
-    size_t h = haystack_len - strlen(needle) + 1;
+    size_t h = haystack_len - strlen(needle) + 1, needle_len = strlen(needle);
+
     while (h--)
     {
-        if (!strncmp(haystack, needle, haystack_len))
+        if (!strncmp(haystack, needle, needle_len))
             return haystack;
 
         haystack++;
