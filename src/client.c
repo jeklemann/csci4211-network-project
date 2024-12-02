@@ -205,7 +205,7 @@ static void *net_loop(void *arg)
         if (drop)
             continue;
 
-        num_toks = split_string(buf + 1, i - 2, ",", &toks);
+        num_toks = split_string(buf + 1, i - 2, ", ", &toks);
         if (!num_toks)
             continue;
 
@@ -213,12 +213,14 @@ static void *net_loop(void *arg)
          * Never forward PUB commands,
          * these should be printed out immediately
          */
-        res = 0;
         if (num_toks == 4 && !strcmp(toks[1], "PUB"))
+        {
             printf("[%s] [%s]: %s\n", toks[0], toks[2], toks[3]);
-        else
-            res = send_to_listener(toks, num_toks);
+            free(toks);
+            continue;
+        }
 
+        res = send_to_listener(toks, num_toks);
         if (!res)
         {
             /* Errors will be returned as one token */
@@ -307,7 +309,7 @@ static int send_data(int sock, char *msg, size_t msg_len)
 
 static void select_name(struct client *client)
 {
-    char client_name[128], req_buf[1024];
+    char client_name[128], req_buf[BUF_SIZE];
     struct cmd_listener *listener;
     int res = SEND_TIMEOUT;
 
@@ -351,7 +353,7 @@ static void select_name(struct client *client)
 static void handle_sub(struct client *client, char **toks, size_t num_toks)
 {
     struct cmd_listener *listener;
-    char req_buf[1024];
+    char req_buf[BUF_SIZE];
     int res;
 
     if (num_toks < 2)
@@ -389,17 +391,34 @@ static void handle_sub(struct client *client, char **toks, size_t num_toks)
 
 static void handle_pub(struct client *client, char **toks, size_t num_toks)
 {
+    char msg_buf[BUF_SIZE], req_buf[BUF_SIZE];
+    size_t i;
+    int res;
+
     if (num_toks < 3)
     {
         printf("Insufficient arguments. Usage: PUB <TOPIC> <MSG>\n");
         return;
     }
 
+    for (i = 2; i < num_toks; i++)
+    {
+        strcat(msg_buf, toks[i]);
+        if (i != num_toks - 1)
+            strcat(msg_buf, " ");
+    }
+
+    gen_pub_cmd(client->client_name, toks[1], msg_buf, req_buf, sizeof(req_buf) / sizeof(*req_buf));
+    res = send_data(client->sock, req_buf, strlen(req_buf));
+    if (res == SEND_FAIL)
+        client->closing = 1;
+    else if (res == SEND_TIMEOUT)
+        printf("Publish failed\n");
 }
 
 static void handle_disc(struct client *client, char **toks, size_t num_toks)
 {
-    char req_buf[1024];
+    char req_buf[BUF_SIZE];
 
     gen_disc_cmd(req_buf, sizeof(req_buf) / sizeof(*req_buf));
     send_data(client->sock, req_buf, strlen(req_buf));
@@ -476,14 +495,18 @@ void start_client(struct addrinfo *addr)
         num_toks = split_string(cmd, strlen(cmd), " ", &toks);
         if (!num_toks)
         {
-            printf("Unable to parse command.\n");
+            printf("Unable to parse command\n");
             continue;
         }
 
         if (!strcmp(toks[0], SUB))
             handle_sub(&client, toks, num_toks);
+        else if (!strcmp(toks[0], PUB))
+            handle_pub(&client, toks, num_toks);
         else if (!strcmp(toks[0], DISC))
             handle_disc(&client, toks, num_toks);
+        else
+            printf("Unknown command\n");
 
         free(toks);
     }
