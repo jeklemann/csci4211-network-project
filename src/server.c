@@ -19,16 +19,39 @@ static char *DEFAULT_TOPIC_NAMES[] = {
     "NEWS",
 };
 
-/* TODO: Queue messages, Phase 1 does not include this */
-
 /* Connected clients */
 static struct hash_table *online_clients;
 pthread_mutex_t online_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* These clients are always added in order of disconnect time */
+static struct hash_table *offline_clients;
+pthread_mutex_t offline_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static struct list *msg_queue;
+pthread_mutex_t msg_queue_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static struct hash_table *topics;
+
+// On disconnect, add to offline clients
+// On pub, add to queue IF offline_clients is not empty
+// On connect, check for offline entry. If exists, remove and populate new online entry
+// Once reconnection is done, send all messages which are older than it's offline time
+// Once sending is done, get oldest client. Remove any messages on head of queue which are older.
 
 static void close_connection(struct connection *conn)
 {
+    struct offline_client *off_client; 
+
+    off_client = calloc(sizeof(*off_client), 1);
+    if (!off_client)
+    {
+        perror("calloc");
+        return;
+    }
+
+    list_init(&off_client->entry);
+    list_init(&off_client->subs);
+
     pthread_mutex_lock(&online_lock);
     list_remove(&conn->entry);
     pthread_mutex_unlock(&online_lock);
@@ -95,7 +118,7 @@ static struct connection *get_client_by_name(char *name)
 static int exists_sub_by_name(struct topic *topic, char *name)
 {
     struct list *bucket, *cur;
-    struct subscription *sub;
+    struct subscriber *sub;
     size_t hash;
 
     hash = hash_bytes(name, strlen(name) + 1) % topic->subs->size;
@@ -103,7 +126,7 @@ static int exists_sub_by_name(struct topic *topic, char *name)
 
     for (cur = bucket->next; cur != bucket; cur = cur->next)
     {
-        sub = LIST_ENTRY(cur, struct subscription, entry);
+        sub = LIST_ENTRY(cur, struct subscriber, entry);
         if (!strcmp(sub->client_name, name))
             return 1;
     }
@@ -135,7 +158,7 @@ static void send_to_client_by_name(char *client_name, char *msg, size_t msg_len)
 static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
 {
     struct list *bucket, *cur;
-    struct subscription *sub;
+    struct subscriber *sub;
     size_t len, i, msg_size;
     char msg[1024];
 
@@ -153,7 +176,7 @@ static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
         bucket = &topic->subs->buckets[i];
         for (cur = bucket->next; cur != bucket; cur = cur->next)
         {
-            sub = LIST_ENTRY(cur, struct subscription, entry);
+            sub = LIST_ENTRY(cur, struct subscriber, entry);
             send_to_client_by_name(sub->client_name, msg, len);
         }
     }
@@ -240,7 +263,8 @@ static void subscribe_command(struct connection *conn, char **cmd_toks, size_t n
 {
     static char *NOT_FOUND = "<ERROR: Subscription Failed - Subject Not Found>";
     static char *SUB_ACK = "<SUB_ACK>";
-    struct subscription *sub;
+    struct subscription *topic_sub;
+    struct subscriber *subscriber;
     char *name, *topic_name;
     struct topic *topic;
 
@@ -256,37 +280,61 @@ static void subscribe_command(struct connection *conn, char **cmd_toks, size_t n
         return;
     }
 
+    subscriber = malloc(sizeof(*subscriber));
+    if (!subscriber)
+    {
+        perror("malloc");
+        return;
+    }
+
+    topic_sub = malloc(sizeof(*topic_sub));
+    if (!topic_sub)
+    {
+        perror("malloc");
+        free(subscriber);
+        return;
+    }
+
+    list_init(&subscriber->entry);
+    subscriber->client_name = strdup(name);
+    if (!subscriber->client_name)
+    {
+        perror("malloc");
+        free(subscriber);
+        free(topic_sub);
+        return;
+    }
+
+    list_init(&topic_sub->entry);
+    topic_sub->topic_name = strdup(topic_name);
+    if (!topic_sub->topic_name)
+    {
+        perror("malloc");
+        free(subscriber->client_name);
+        free(subscriber);
+        free(topic_sub);
+        return;
+    }
+
     pthread_mutex_lock(&topic->subs_lock);
 
     if (exists_sub_by_name(topic, name))
     {
         /* Already subscribed, just ACK */
         reply_conn(conn, SUB_ACK, strlen(SUB_ACK));
+        free(subscriber->client_name);
+        free(subscriber);
+        free(topic_sub->topic_name);
+        free(topic_sub);
         pthread_mutex_unlock(&topic->subs_lock);
         return;
     }
 
-    sub = malloc(sizeof(*sub));
-    if (!sub)
-    {
-        perror("malloc");
-        pthread_mutex_unlock(&topic->subs_lock);
-        return;
-    }
-
-    list_init(&sub->entry);
-    sub->client_name = strdup(name);
-    if (!sub->client_name)
-    {
-        perror("malloc");
-        free(sub);
-        pthread_mutex_unlock(&topic->subs_lock);
-        return;
-    }
-
-    hash_insert(topic->subs, sub->client_name, strlen(sub->client_name) + 1, &sub->entry);
+    hash_insert(topic->subs, subscriber->client_name, strlen(subscriber->client_name) + 1, &subscriber->entry);
 
     pthread_mutex_unlock(&topic->subs_lock);
+
+    list_add_tail(&conn->subbed_topics, &topic_sub->entry);
 
     reply_conn(conn, SUB_ACK, strlen(SUB_ACK));
 
