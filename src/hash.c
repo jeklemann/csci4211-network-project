@@ -10,6 +10,11 @@ void list_init(struct list *list)
     list->prev = list->next = list; 
 }
 
+int list_empty(struct list *list)
+{
+    return list == list->next;
+}
+
 void list_add_head(struct list *list, struct list *elem)
 {
     elem->next = list->next;
@@ -96,3 +101,15 @@ void hash_insert(struct hash_table *table, void *key, size_t key_len, struct lis
     return;
 }
 
+int hash_empty(struct hash_table *table)
+{
+    size_t i;
+
+    for (i = 0; i < table->size; i++)
+    {
+        if (!list_empty(&table->buckets[i]))
+            return 0;
+    }
+
+    return 1;
+}

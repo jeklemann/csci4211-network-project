@@ -41,4 +41,13 @@ struct subscription
     char *topic_name;
 };
 
+struct queued_msg
+{
+    char *message;
+    char *topic;
+    char *sender;
+    uint64_t time;
+    struct list entry;
+};
+
 void start_server(unsigned short port);

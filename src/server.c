@@ -27,39 +27,10 @@ pthread_mutex_t online_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct hash_table *offline_clients;
 pthread_mutex_t offline_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static struct list *msg_queue;
+static struct list msg_queue = LIST_INIT(msg_queue);
 pthread_mutex_t msg_queue_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static struct hash_table *topics;
-
-// On disconnect, add to offline clients
-// On pub, add to queue IF offline_clients is not empty
-// On connect, check for offline entry. If exists, remove and populate new online entry
-// Once reconnection is done, send all messages which are older than it's offline time
-// Once sending is done, get oldest client. Remove any messages on head of queue which are older.
-
-static void close_connection(struct connection *conn)
-{
-    struct offline_client *off_client; 
-
-    off_client = calloc(sizeof(*off_client), 1);
-    if (!off_client)
-    {
-        perror("calloc");
-        return;
-    }
-
-    list_init(&off_client->entry);
-    list_init(&off_client->subs);
-
-    pthread_mutex_lock(&online_lock);
-    list_remove(&conn->entry);
-    pthread_mutex_unlock(&online_lock);
-
-    close(conn->sock);
-    free(conn->name);
-    free(conn);
-}
 
 static void reply_conn(struct connection *conn, char *msg, size_t msg_len)
 {
@@ -73,6 +44,170 @@ static void reply_conn(struct connection *conn, char *msg, size_t msg_len)
     }
 
     return;
+}
+
+static uint64_t get_oldest_offline_client_time(void)
+{
+    struct offline_client *client;
+    uint64_t oldest_time = ~0u;
+    size_t i;
+
+    pthread_mutex_lock(&offline_lock);
+
+    if (hash_empty(offline_clients))
+    {
+        pthread_mutex_unlock(&offline_lock);
+        return ~0u; /* Removes everything */
+    }
+
+    for (i = 0; i < offline_clients->size; i++)
+    {
+        if (list_empty(&offline_clients->buckets[i]))
+            continue;
+        
+        /* prev/tail is the oldest element, elements are added head first */
+        client = LIST_ENTRY(offline_clients->buckets[i].prev,
+                            struct offline_client,
+                            entry);
+
+        if (client->disc_time < oldest_time)
+            oldest_time = client->disc_time;
+    }
+
+    pthread_mutex_unlock(&offline_lock);
+
+    return oldest_time;
+}
+
+static void remove_stale_messages(void)
+{
+    uint64_t oldest_time = get_oldest_offline_client_time();
+    struct queued_msg *msg;
+    struct list *cur;
+
+    pthread_mutex_lock(&msg_queue_lock);
+
+    for (cur = msg_queue.next; cur != &msg_queue; cur = cur->next)
+    {
+        msg = LIST_ENTRY(cur, struct queued_msg, entry);
+        if (msg->time < oldest_time)
+        {
+            list_remove(cur);
+            free(msg->message);
+            free(msg->topic);
+            free(msg->sender);
+            free(msg);
+        }
+    }
+
+    pthread_mutex_unlock(&msg_queue_lock);
+}
+
+static int is_offline_client_subscribed(struct offline_client *client, char *topic)
+{
+    struct subscription *sub;
+    struct list *cur;
+
+    for (cur = client->subs.next; cur != &client->subs; cur = cur->next)
+    {
+        sub = LIST_ENTRY(cur, struct subscription, entry);
+        if (!strcmp(sub->topic_name, topic))
+            return 1;
+    }
+
+    return 0;
+}
+
+static void add_offline_client(struct connection *conn)
+{
+    struct offline_client *off_client; 
+
+    off_client = calloc(sizeof(*off_client), 1);
+    if (!off_client)
+    {
+        perror("calloc");
+        return;
+    }
+
+    off_client->name = strdup(conn->name);
+    if (!off_client->name)
+    {
+        perror("stdup");
+        free(off_client);
+        return;
+    }
+
+    list_init(&off_client->entry);
+    list_init(&off_client->subs);
+    off_client->disc_time = get_current_time();
+
+    /* Move from one list to another */
+    list_add_head(&off_client->subs, &conn->subbed_topics);
+    list_remove(&conn->subbed_topics);
+    list_init(&conn->subbed_topics);
+
+    pthread_mutex_lock(&offline_lock);
+
+    hash_insert(offline_clients,
+                off_client->name,
+                strlen(off_client->name) + 1,
+                &off_client->entry);
+
+    pthread_mutex_unlock(&offline_lock);
+    
+    return;
+}
+
+/* Removes offline client and moves data to connection. Frees offline_client */
+static void reconnect_offline_client(struct offline_client *offline, struct connection *conn)
+{
+    struct queued_msg *msg;
+    struct list *cur;
+    char msg_buf[1024];
+
+    pthread_mutex_lock(&msg_queue_lock);
+
+    for (cur = msg_queue.next; cur != &msg_queue; cur = cur->next)
+    {
+        msg = LIST_ENTRY(cur, struct queued_msg, entry);
+
+        if (offline->disc_time < msg->time)
+            break;
+
+        if (!is_offline_client_subscribed(offline, msg->topic))
+            continue;
+
+        snprintf(msg_buf, 1024, "<%s, PUB, %s, %s>", msg->sender, msg->topic, msg->message);
+
+        reply_conn(conn, msg_buf, 1024);
+    }
+
+    pthread_mutex_unlock(&msg_queue_lock);
+
+    /* Move from one list to another */
+    list_add_head(&conn->subbed_topics, &offline->subs);
+    list_remove(&offline->subs);
+
+    list_remove(&offline->entry);
+    free(offline->name);
+    free(offline);
+
+    remove_stale_messages();
+
+    return;
+}
+
+static void close_connection(struct connection *conn)
+{
+    add_offline_client(conn);
+
+    pthread_mutex_lock(&online_lock);
+    list_remove(&conn->entry);
+    pthread_mutex_unlock(&online_lock);
+
+    close(conn->sock);
+    free(conn->name);
+    free(conn);
 }
 
 static struct topic *get_topic(char *name)
@@ -109,6 +244,26 @@ static struct connection *get_client_by_name(char *name)
         conn = LIST_ENTRY(cur, struct connection, entry);
         if (!strcmp(conn->name, name))
             return conn;
+    }
+
+    return NULL;
+}
+
+/* Must lock offline_lock when calling */
+static struct offline_client *get_offline_client_by_name(char *name)
+{
+    struct list *bucket, *cur;
+    struct offline_client *client;
+    size_t hash;
+
+    hash = hash_bytes(name, strlen(name) + 1) % offline_clients->size;
+    bucket = &offline_clients->buckets[hash];
+
+    for (cur = bucket->next; cur != bucket; cur = cur->next)
+    {
+        client = LIST_ENTRY(cur, struct offline_client, entry);
+        if (!strcmp(client->name, name))
+            return client;
     }
 
     return NULL;
@@ -154,12 +309,60 @@ static void send_to_client_by_name(char *client_name, char *msg, size_t msg_len)
     return;
 }
 
+static void enqueue_msg(char *msg, char *topic, char *sender)
+{
+    uint64_t cur_time = get_current_time();
+    struct queued_msg *queued_msg;
+
+    queued_msg = calloc(sizeof(*queued_msg), 1);
+    if (!queued_msg)
+    {
+        perror("calloc");
+        return;
+    }
+
+    list_init(&queued_msg->entry);
+    queued_msg->time = cur_time;
+    queued_msg->message = strdup(msg);
+    if (!queued_msg->message)
+    {
+        perror("calloc");
+        free(queued_msg);
+        return;
+    }
+    queued_msg->topic = strdup(topic);
+    if (!queued_msg->topic)
+    {
+        perror("calloc");
+        free(queued_msg->message);
+        free(queued_msg);
+        return;
+    }
+    queued_msg->sender = strdup(sender);
+    if (!queued_msg->sender)
+    {
+        perror("calloc");
+        free(queued_msg->topic);
+        free(queued_msg->message);
+        free(queued_msg);
+        return;
+    }
+
+    pthread_mutex_lock(&msg_queue_lock);
+
+    list_add_tail(&msg_queue, &queued_msg->entry);
+
+    pthread_mutex_unlock(&msg_queue_lock);
+
+    return;
+}
+
 /* Must lock topic->subs_lock */
 static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
 {
     struct list *bucket, *cur;
-    struct subscriber *sub;
     size_t len, i, msg_size;
+    struct subscriber *sub;
     char msg[1024];
 
     assert(num_toks >= 4);
@@ -181,6 +384,9 @@ static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
         }
     }
 
+    if (!hash_empty(offline_clients))
+        enqueue_msg(cmd[3], cmd[2], cmd[0]);
+
     return;
 }
 
@@ -188,6 +394,7 @@ static void connect_command(struct connection *conn, char **cmd_toks, size_t num
 {
     static char *CONN_ACK = "<CONN_ACK>";
     struct connection *found;
+    struct offline_client *offline_client;
     char *name;
 
     if (num_toks < 2)
@@ -213,11 +420,25 @@ static void connect_command(struct connection *conn, char **cmd_toks, size_t num
         return;
     }
 
-    list_remove(&conn->entry); /* In case of resending the CONN command */
+    /* Already connected, remove from list and add offline entry */
+    if (conn->name)
+    {
+        add_offline_client(conn);
+        list_remove(&conn->entry);
+    }
+
     conn->name = name;
     hash_insert(online_clients, conn->name, strlen(conn->name) + 1, &conn->entry);
 
     pthread_mutex_unlock(&online_lock);
+
+    pthread_mutex_lock(&offline_lock);
+
+    offline_client = get_offline_client_by_name(conn->name);
+    if (offline_client)
+        reconnect_offline_client(offline_client, conn);
+
+    pthread_mutex_unlock(&offline_lock);
 
     reply_conn(conn, CONN_ACK, strlen(CONN_ACK));
 
