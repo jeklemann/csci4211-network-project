@@ -393,14 +393,20 @@ static void publish_msg(struct topic *topic, char **cmd, size_t num_toks)
 static void connect_command(struct connection *conn, char **cmd_toks, size_t num_toks)
 {
     static char *CONN_ACK = "<CONN_ACK>";
-    struct connection *found;
     struct offline_client *offline_client;
-    char *name;
+    struct connection *found;
+    char *name, **name_src;
 
     if (num_toks < 2)
         return; /* Specification does not demand we respond */
 
-    name = strdup(cmd_toks[0]);
+    /* RECONNECT's argument order is reversed for some reason */
+    if (!strcmp(cmd_toks[0], "RECONNECT"))
+        name_src = &cmd_toks[1];
+    else
+        name_src = &cmd_toks[0];
+
+    name = strdup(*name_src);
     if (name == NULL)
     {
         perror("strdup");
@@ -603,7 +609,7 @@ static void parse_command(struct connection *conn, char *cmd, size_t len)
         goto out;
     }
 
-    /* Remaining commands have the command in the second argument */
+    /* Remaining commands require at least two arguments */
     if (num_toks < 2)
         goto out;
 
@@ -612,6 +618,8 @@ static void parse_command(struct connection *conn, char *cmd, size_t len)
     else if (!strcmp(toks[1], "SUB"))
         subscribe_command(conn, toks, num_toks);
     else if (!strcmp(toks[1], "CONN"))
+        connect_command(conn, toks, num_toks);
+    else if (!strcmp(toks[0], "RECONNECT"))
         connect_command(conn, toks, num_toks);
 
 out:
