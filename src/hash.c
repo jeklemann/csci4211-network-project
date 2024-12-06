@@ -33,6 +33,20 @@ void list_add_tail(struct list *list, struct list *elem)
     list->prev = elem;
 }
 
+void list_move_append(struct list *dst, struct list *src)
+{
+    if (list_empty(src))
+        return;
+
+    src->next->prev = dst->prev;
+    dst->prev->next = src->next;
+
+    src->prev->next = dst;
+    dst->prev = src->prev;
+
+    list_init(src);
+}
+
 void list_remove(struct list *elem)
 {
     elem->prev->next = elem->next;

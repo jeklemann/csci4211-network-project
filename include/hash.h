@@ -20,6 +20,7 @@ void list_init(struct list *list);
 int list_empty(struct list *list);
 void list_add_head(struct list *list, struct list *elem);
 void list_add_tail(struct list *list, struct list *elem);
+void list_move_append(struct list *dst, struct list *src);
 void list_remove(struct list *list);
 
 struct hash_table
