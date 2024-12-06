@@ -311,9 +311,9 @@ static void select_name(struct client *client)
 {
     char client_name[128], req_buf[BUF_SIZE];
     struct cmd_listener *listener;
-    int res = SEND_TIMEOUT;
+    int res, num_toks = 0;
 
-    while (res == SEND_TIMEOUT && !client->closing)
+    while (!client->closing)
     {
         prompt_name(client_name, sizeof(client_name) / sizeof(*client_name));
         gen_conn_cmd(client_name, req_buf, sizeof(req_buf) / sizeof(*req_buf));
@@ -336,14 +336,18 @@ static void select_name(struct client *client)
             continue;
         }
 
-        res = wait_for_cmd(listener, NULL);
-        if (res)
+        num_toks = wait_for_cmd(listener, NULL);
+        if (num_toks)
         {
             pthread_mutex_lock(&client->lock);
             client->client_name = strdup(client_name);
             pthread_mutex_unlock(&client->lock);
             free(listener);
             return;
+        }
+        else
+        {
+            printf("This name was not accepted, try another name\n");
         }
 
         free(listener);
@@ -472,7 +476,9 @@ void start_client(struct addrinfo *addr)
 
     select_name(&client);
 
-    printf("Connected as %s!\nCommands:\nSUB <TOPIC>\nPUB <TOPIC> <MESSAGE>\nDISC\n\n", client.client_name);
+    if (!client.closing)
+        printf("Connected as %s!\nCommands:\nSUB <TOPIC>\nPUB <TOPIC> <MESSAGE>\nDISC\n\n", client.client_name);
+
     while (!client.closing)
     {
         s = fgets(cmd, sizeof(cmd) / sizeof(*cmd), stdin);
