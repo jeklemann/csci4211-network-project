@@ -36,12 +36,8 @@ Commands are:
 - `<[NAME], CONN>`
 - `<[NAME], SUB, [TOPIC]>`
 - `<[NAME], PUB, [TOPIC], [MSG]>`
-- `<DISC>`.
-
-### Not yet implemented
-
-- Handling offline rejoins
-- Queuing messages
+- `<DISC>`
+- `<RECONNECT, [NAME]>`
 
 
 ## Client
@@ -53,9 +49,6 @@ Usage: `mqttc [address] [port]`
 - Connecting
 - Subscribing
 - Disconnecting
-
-### Not yet implemented
-
 - Publishing
 - Receiving published messages
 
